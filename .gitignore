@@ -1,0 +1,7 @@
+*.png
+.DS_Store
+.idea
+png_align
+png_align.exe
+bin/
+
