@@ -6,11 +6,14 @@ import (
 	"image/png"
 	"io/ioutil"
 	"log"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"github.com/robfig/graphics-go/graphics"
 )
+
 type Metadata struct {
 	textureName string
 	with int
@@ -19,6 +22,8 @@ type Metadata struct {
 }
 
 type Rect struct {
+	offX int
+	offY int
 	x int
 	y int
 	w int
@@ -53,6 +58,30 @@ func trim(content []byte) string {
 	return text
 }
 
+func clipImage(pngPath string, frame *Frame) *image.NRGBA {
+	f, err := os.Open(pngPath + "/" + frame.name)
+	if err != nil {
+		log.Fatal(err)
+		return nil
+	}
+	if img, _, err := image.Decode(bufio.NewReader(f)); err == nil {
+		offX := (img.Bounds().Dx()-frame.rect.w)/2 + frame.rect.offX
+		offY := (img.Bounds().Dy()-frame.rect.h)/2 - frame.rect.offY
+		newImg := image.NewNRGBA(image.Rect(0, 0, frame.rect.w, frame.rect.h))
+		dstImg := image.NewNRGBA(image.Rect(0, 0, frame.rect.h, frame.rect.w))
+		for x := 0; x < frame.rect.w; x++ {
+			for y := 0; y < frame.rect.h; y++ {
+				newImg.Set(x, y, img.At(offX+x, offY+y))
+			}
+		}
+		graphics.Rotate(dstImg, newImg, &graphics.RotateOptions{
+			Angle: math.Pi / 2,
+		})
+		return dstImg
+	}
+	return nil
+}
+
 func run(info *Info) {
 	newImg := image.NewNRGBA(image.Rect(0, 0, info.metadata.with, info.metadata.height))
 	for _, frame := range info.frames {
@@ -62,15 +91,21 @@ func run(info *Info) {
 			return
 		}
 		if img, _, err := image.Decode(bufio.NewReader(f)); err == nil {
-			dx := img.Bounds().Dx()
-			dy := img.Bounds().Dy()
-			for x := 0; x < dx; x++ {
-				for y := 0; y < dy; y++ {
-					if frame.rotated {
-						log.Println("rotated.", info.metadata.textureName, frame.name)
-						newImg.Set(x+frame.rect.x, y+frame.rect.y, img.At(y, x))
-					} else {
+			if frame.rotated {
+				log.Println("rotated.", info.metadata.textureName, frame.name)
+				img := clipImage(info.pngPath, &frame)
+				for x := 0; x < frame.rect.h; x++ {
+					for y := 0; y < frame.rect.w; y++ {
 						newImg.Set(x+frame.rect.x, y+frame.rect.y, img.At(x, y))
+						//newImg.Set(x+frame.rect.x, y+frame.rect.y, img.At(offX+y, offY+frame.rect.offX-x-1))
+					}
+				}
+			} else {
+				offX := (img.Bounds().Dx() - frame.rect.w) / 2 + frame.rect.offX
+				offY := (img.Bounds().Dy() - frame.rect.h) / 2 - frame.rect.offY
+				for x := 0; x < frame.rect.w; x++ {
+					for y := 0; y < frame.rect.h; y++ {
+						newImg.Set(x+frame.rect.x, y+frame.rect.y, img.At(offX+x, offY+y))
 					}
 				}
 			}
@@ -80,7 +115,7 @@ func run(info *Info) {
 		}
 		f.Close()
 	}
-	outPath := info.OutPngPath + "/" + info.metadata.textureName
+	outPath := info.OutPngPath + "/n_" + info.metadata.textureName
 	outFile, err := os.Create(outPath)
 	if err != nil {
 		log.Fatal(err)
@@ -106,6 +141,11 @@ func main()  {
 	}
 
 	regRect, err := regexp.Compile("\\<key\\>textureRect</key\\> <string>{{(\\d+),(\\d+)},{(\\d+),(\\d+)}}(</string>)")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	regOffset, err := regexp.Compile("\\<key\\>spriteOffset</key\\> <string>{([-0-9]+),([-0-9]+)}(</string>)")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -154,8 +194,9 @@ func main()  {
 		}
 		//fmt.Print(result[1])
 		result1Rect := regRect.FindStringSubmatch(result[2])
+		resultOffset := regOffset.FindStringSubmatch(result[2])
 		resultRotated := regRotated.FindStringSubmatch(result[2])
-		if result1Rect != nil && resultRotated != nil {
+		if result1Rect != nil && resultRotated != nil && resultOffset != nil {
 			//fmt.Println("", result1Rect[1], result1Rect[2], result1Rect[3], result1Rect[4], resultRotated[1])
 			x, err := strconv.Atoi(result1Rect[1])
 			if err != nil {
@@ -173,6 +214,14 @@ func main()  {
 			if err != nil {
 				log.Fatal(err)
 			}
+			offX, err := strconv.Atoi(resultOffset[1])
+			if err != nil {
+				log.Fatal(err)
+			}
+			offY, err := strconv.Atoi(resultOffset[2])
+			if err != nil {
+				log.Fatal(err)
+			}
 			info.frames = append(info.frames, Frame{
 				name: result[1],
 				rect: Rect{
@@ -180,6 +229,8 @@ func main()  {
 					y: y,
 					w: w,
 					h: h,
+					offX: offX,
+					offY: offY,
 				},
 				rotated: resultRotated[1] == "true",
 			})
