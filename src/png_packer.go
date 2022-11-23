@@ -92,7 +92,7 @@ func run(info *Info) {
 		}
 		if img, _, err := image.Decode(bufio.NewReader(f)); err == nil {
 			if frame.rotated {
-				log.Println("rotated.", info.metadata.textureName, frame.name)
+				// log.Println("rotated.", info.metadata.textureName, frame.name)
 				img := clipImage(info.pngPath, &frame)
 				for x := 0; x < frame.rect.h; x++ {
 					for y := 0; y < frame.rect.w; y++ {
